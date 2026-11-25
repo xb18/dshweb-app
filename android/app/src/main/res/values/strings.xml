@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DSH Web</string>
+    <string name="load_error">页面加载失败：%1$s</string>
+    <string name="retry">重试</string>
+    <string name="press_back_again">再按一次返回退出</string>
+</resources>

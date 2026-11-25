@@ -1,0 +1,227 @@
+name: 打包 DSH Web 安卓壳
+
+# 仅手动触发或打 android-v* tag 时构建；网页内容更新无需重发 APK。
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 版本号（如 1.0.1），留空用 gradle.properties 的 shellVersionName
+        required: false
+        type: string
+  push:
+    tags:
+      - 'android-v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dshweb-android-build-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: 构建 APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 确认 Android SDK 环境
+        shell: bash
+        run: |
+          echo "ANDROID_HOME=${ANDROID_HOME:-未设置}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-未设置}"
+          if [ -z "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}" ]; then
+            echo "未找到 Android SDK" >&2
+            exit 1
+          fi
+
+      - name: 安装编译所需 SDK 组件（已存在则跳过）
+        shell: bash
+        run: |
+          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          SDKMANAGER="$(find "$SDK/cmdline-tools" -name sdkmanager -type f | head -n1)"
+          if [ -n "$SDKMANAGER" ]; then
+            yes | "$SDKMANAGER" --sdk_root="$SDK" "platforms;android-35" "build-tools;35.0.0" || true
+          else
+            echo "sdkmanager 未找到，使用 runner 预装组件"
+          fi
+          test -d "$SDK/platforms/android-35" || { echo "缺少 Android 35 platform" >&2; exit 1; }
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: 计算版本号
+        id: ver
+        shell: bash
+        run: |
+          input="${{ inputs.version }}"
+          if [ -n "$input" ]; then
+            version="$input"
+          elif [[ "${GITHUB_REF_NAME}" == android-v* ]]; then
+            version="${GITHUB_REF_NAME#android-v}"
+          else
+            version="$(grep '^shellVersionName=' android/gradle.properties | cut -d= -f2)"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "DSH Web 壳版本: ${version}"
+
+      - name: 写入版本号
+        if: ${{ inputs.version != '' || startsWith(github.ref_name, 'android-v') }}
+        shell: bash
+        run: |
+          v="${{ steps.ver.outputs.version }}"
+          sed -i "s/^shellVersionName=.*/shellVersionName=${v}/" android/gradle.properties
+          if [[ "${GITHUB_REF_NAME}" == android-v* ]]; then
+            code=$((10#$(echo "$v" | tr -cd '0-9' | head -c 9)))
+          else
+            code=$(date +%s | tail -c 9)
+          fi
+          [ -z "$code" ] && code=1
+          sed -i "s/^shellVersionCode=.*/shellVersionCode=${code}/" android/gradle.properties
+
+      - name: 构建 Debug APK
+        working-directory: android
+        run: gradle assembleDebug --no-daemon
+
+      - name: 定位 APK
+        id: apk
+        shell: bash
+        run: |
+          apk="$(find android/app/build/outputs/apk/debug -name '*.apk' -type f | head -n1)"
+          if [ -z "$apk" ]; then
+            echo "未找到 APK 产物" >&2
+            exit 1
+          fi
+          name="dshweb-app-${{ steps.ver.outputs.version }}.apk"
+          cp "$apk" "$name"
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
+          echo "size=$(du -h "$name" | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: 上传 APK 制品
+        uses: actions/upload-artifact@v4
+        with:
+          name: dshweb-app-apk
+          path: ${{ steps.apk.outputs.name }}
+          if-no-files-found: error
+
+      # 仅 android-v* tag 才发布到 WebDAV，手动触发只出制品。
+      - name: 通过 WebDAV 发布 APK 与更新索引
+        if: startsWith(github.ref_name, 'android-v')
+        shell: bash
+        env:
+          WEBDAV_URL: ${{ secrets.WEBDAV_URL }}
+          WEBDAV_USERNAME: ${{ secrets.WEBDAV_USERNAME }}
+          WEBDAV_PASSWORD: ${{ secrets.WEBDAV_PASSWORD }}
+          WEBDAV_DIR: ${{ vars.WEBDAV_DIR }}
+          PUBLIC_BASE: ${{ vars.PUBLIC_BASE }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          APK_NAME: ${{ steps.apk.outputs.name }}
+        run: |
+          missing=""
+          [ -z "$WEBDAV_URL" ] && missing="$missing WEBDAV_URL"
+          [ -z "$WEBDAV_USERNAME" ] && missing="$missing WEBDAV_USERNAME"
+          [ -z "$WEBDAV_PASSWORD" ] && missing="$missing WEBDAV_PASSWORD"
+          [ -z "$WEBDAV_DIR" ] && missing="$missing WEBDAV_DIR(variable)"
+          [ -z "$PUBLIC_BASE" ] && missing="$missing PUBLIC_BASE(variable)"
+          if [ -n "$missing" ]; then
+            echo "缺少配置:$missing" >&2
+            echo "请在仓库 Settings → Secrets and variables → Actions 配置后重跑。" >&2
+            exit 1
+          fi
+          base="${WEBDAV_URL%/}"
+          dir="${WEBDAV_DIR#/}"
+          auth=(-u "$WEBDAV_USERNAME:$WEBDAV_PASSWORD")
+
+          apk_file="$(basename "$APK_NAME")"
+          size=$(wc -c < "$APK_NAME" | tr -d ' ')
+          echo "上传 APK: $apk_file ($size 字节)"
+          curl -fsS "${auth[@]}" -T "$APK_NAME" "$base/$dir/$apk_file"
+          echo "APK 上传完成"
+
+          index="dshweb-index.txt"
+          python3 - "$apk_file" "$VERSION" "$PUBLIC_BASE" "$size" > "$index" <<'PY'
+          import json, sys
+          apk, version, public_base, size = sys.argv[1:5]
+          print(json.dumps({
+              "version": version,
+              "url": public_base.rstrip("/") + "/" + apk,
+              "notes": "DSH Web WebView 壳更新",
+              "size": int(size),
+          }, ensure_ascii=False, indent=2))
+          PY
+          echo "上传更新索引:"
+          cat "$index"
+          curl -fsS "${auth[@]}" -T "$index" "$base/$dir/dshweb-update.txt"
+          echo "更新索引上传完成"
+
+      - name: 刷新分享缓存（可选，AList）
+        if: startsWith(github.ref_name, 'android-v') && vars.ALIST_REFRESH == '1'
+        shell: bash
+        env:
+          ALIST_BASE_URL: ${{ secrets.ALIST_BASE_URL }}
+          WEBDAV_USERNAME: ${{ secrets.WEBDAV_USERNAME }}
+          WEBDAV_PASSWORD: ${{ secrets.WEBDAV_PASSWORD }}
+          ALIST_SHARE_DIR: ${{ vars.ALIST_SHARE_DIR }}
+        run: |
+          if [ -z "$ALIST_BASE_URL" ] || [ -z "$ALIST_SHARE_DIR" ]; then
+            echo "ALIST_REFRESH=1 但未配置 ALIST_BASE_URL / ALIST_SHARE_DIR，跳过刷新" >&2; exit 0; fi
+          token=$(curl -fsS -X POST "$ALIST_BASE_URL/api/auth/login" \
+            -H 'Content-Type: application/json' \
+            -d "{\"username\":\"$WEBDAV_USERNAME\",\"password\":\"$WEBDAV_PASSWORD\"}" \
+            | python3 -c 'import json,sys; print((json.load(sys.stdin).get("data") or {}).get("token",""))')
+          if [ -z "$token" ]; then echo "登录 AList 失败，跳过刷新" >&2; exit 0; fi
+          curl -fsS -X POST "$ALIST_BASE_URL/api/fs/list" \
+            -H "Authorization: $token" -H 'Content-Type: application/json' \
+            -d "{\"path\":\"$ALIST_SHARE_DIR\",\"password\":\"\",\"page\":1,\"per_page\":100,\"refresh\":true}" \
+            && echo "分享缓存已刷新"
+
+      - name: 校验更新索引
+        if: startsWith(github.ref_name, 'android-v')
+        shell: bash
+        env:
+          PUBLIC_BASE: ${{ vars.PUBLIC_BASE }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          sleep 5
+          body="$(curl -fsSL "$PUBLIC_BASE/dshweb-update.txt")" || {
+            echo "更新索引暂不可访问（可能是云盘缓存延迟），请人工核对" >&2; exit 0; }
+          echo "$body"
+          printf '%s' "$body" | python3 -c '
+          import json,sys,os
+          d=json.load(sys.stdin)
+          want=os.environ["VERSION"]
+          got=d.get("version")
+          if got==want:
+            print("索引版本核对通过:", got, d.get("url"))
+          else:
+            print("索引版本仍为", got, "期望", want, "（可能缓存未刷新）")
+          '
+
+      - name: 创建 GitHub Release
+        if: startsWith(github.ref_name, 'android-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: DSH Web 安卓壳 ${{ steps.ver.outputs.version }}
+          body: |
+            内嵌网页：`https://dsh.202921.xyz`
+
+            这是一个 WebView 壳，页面内容更新无需重新安装；仅当壳本身升级时才发新版。
+            安装：下载 APK 直接安装（Android 5.0+）。
+          files: ${{ steps.apk.outputs.name }}
+
+      - name: 输出摘要
+        shell: bash
+        run: |
+          echo "### DSH Web 安卓壳打包完成" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 版本：${{ steps.ver.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 网址：https://dsh.202921.xyz" >> "$GITHUB_STEP_SUMMARY"
+          echo "- APK：${{ steps.apk.outputs.name }}（${{ steps.apk.outputs.size }}）" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 触发：${GITHUB_REF_NAME}（${{ github.event_name }}）" >> "$GITHUB_STEP_SUMMARY"
