@@ -49,22 +49,23 @@ JS 侧统一使用 `window.nativeapp`，iOS 可按同一契约实现：
 CI 把文件上传到统一根下的 `dshweb-app/` 子目录：
 
 ```
-<WEBDAV_DIR>/                 # 统一可写分发根（账号挂载 /lanzou/appdist）
-├── dshweb-app/               # 本 app
-│   ├── dshweb-app-1.0.0.apk
-│   └── dshweb-update.txt
-└── <other-app>/              # 以后的 app 各自建子目录
-    └── ...
+<WEBDAV_DIR>/                       # 统一可写分发根（账号挂载 /lanzou/appdist，公网分享 59uaf2bR）
+├── dshweb-app-1.0.0.apk            # 本 app 的 APK（文件名前缀区分 app）
+├── dshweb-app-update.txt           # 本 app 的更新索引
+└── <other-app>-1.0.0.apk           # 其他 app 各自用前缀，不建子目录
 ```
 
+分发目录必须**扁平**：蓝奏云分享挂载对子文件夹的列表与直链有兼容问题，
+因此各 app 用文件名前缀区分，不建子目录。
+
 `WEBDAV_DIR` 填 `lanzou/appdist`（账号挂载可写；分享链接挂载只读，不能用于上传）。
-`PUBLIC_BASE` 填统一根的公网分享地址（如 `https://pan.202921.xyz/sd/cj7qz1dq`），
-CI 自动拼上 `/dshweb-app/` 子目录；APK 默认更新源同理。
+`PUBLIC_BASE` 填统一根的公网分享地址（如 `https://pan.202921.xyz/sd/59uaf2bR`），
+APK 默认更新源同理。
 
 CI 需要的 Secrets / Variables：
 
 - Secrets：`WEBDAV_URL`、`WEBDAV_USERNAME`、`WEBDAV_PASSWORD`（可选 `ALIST_BASE_URL`）
-- Variables：`WEBDAV_DIR` 填统一根（`lanzou/appdist`）、`PUBLIC_BASE` 填统一根公网地址（可选 `ALIST_REFRESH=1`、`ALIST_SHARE_DIR`）
+- Variables：`WEBDAV_DIR` 填统一根（`lanzou/appdist`）、`PUBLIC_BASE` 填统一根公网地址（`https://pan.202921.xyz/sd/59uaf2bR`）（可选 `ALIST_REFRESH=1`、`ALIST_SHARE_DIR`）
 
 更新索引为通用 JSON（与参考壳一致）：
 
