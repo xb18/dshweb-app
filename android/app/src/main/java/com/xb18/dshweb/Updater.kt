@@ -203,7 +203,7 @@ class Updater(
     companion object {
         private const val KEY_SOURCE = "update_source"
         // 自建更新索引：APK 直链托管在 AList 分享，JSON 用 .txt 后缀绕过蓝奏云上传限制
-        private const val DEFAULT_SOURCE = "https://pan.202921.xyz/sd/j3JCxWPe/dshweb-app/dshweb-update.txt"
+        private const val DEFAULT_SOURCE = "https://pan.202921.xyz/sd/cj7qz1dq/dshweb-app/dshweb-update.txt"
         const val EVENT_CHECK = "updateCheck"
         const val EVENT_PROGRESS = "downloadProgress"
         const val EVENT_DOWNLOAD_DONE = "downloadComplete"

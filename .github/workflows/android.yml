@@ -137,7 +137,7 @@ jobs:
           fi
           base="${WEBDAV_URL%/}"
           # 统一分发根下按 app 建子目录，多个 app 共用同一个挂载/分享。
-          # WEBDAV_DIR 填统一根（如 bookapp_share），APP_DIR 为本 app 子目录名。
+          # WEBDAV_DIR 填统一根（如 lanzou/appdist），本 app 在根下建自己的子目录。
           dir="${WEBDAV_DIR#/}/dshweb-app"
           public="${PUBLIC_BASE%/}/dshweb-app"
           auth=(-u "$WEBDAV_USERNAME:$WEBDAV_PASSWORD")

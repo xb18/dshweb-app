@@ -49,7 +49,7 @@ JS 侧统一使用 `window.nativeapp`，iOS 可按同一契约实现：
 CI 把文件上传到统一根下的 `dshweb-app/` 子目录：
 
 ```
-<WEBDAV_DIR>/                 # 统一分发根（如 bookapp_share）
+<WEBDAV_DIR>/                 # 统一可写分发根（账号挂载 /lanzou/appdist）
 ├── dshweb-app/               # 本 app
 │   ├── dshweb-app-1.0.0.apk
 │   └── dshweb-update.txt
@@ -57,13 +57,14 @@ CI 把文件上传到统一根下的 `dshweb-app/` 子目录：
     └── ...
 ```
 
-`PUBLIC_BASE` 填统一根的公网分享地址（如 `https://pan.202921.xyz/sd/j3JCxWPe`），
+`WEBDAV_DIR` 填 `lanzou/appdist`（账号挂载可写；分享链接挂载只读，不能用于上传）。
+`PUBLIC_BASE` 填统一根的公网分享地址（如 `https://pan.202921.xyz/sd/cj7qz1dq`），
 CI 自动拼上 `/dshweb-app/` 子目录；APK 默认更新源同理。
 
 CI 需要的 Secrets / Variables：
 
 - Secrets：`WEBDAV_URL`、`WEBDAV_USERNAME`、`WEBDAV_PASSWORD`（可选 `ALIST_BASE_URL`）
-- Variables：`WEBDAV_DIR` 填统一根（如 `bookapp_share`）、`PUBLIC_BASE` 填统一根公网地址（可选 `ALIST_REFRESH=1`、`ALIST_SHARE_DIR`）
+- Variables：`WEBDAV_DIR` 填统一根（`lanzou/appdist`）、`PUBLIC_BASE` 填统一根公网地址（可选 `ALIST_REFRESH=1`、`ALIST_SHARE_DIR`）
 
 更新索引为通用 JSON（与参考壳一致）：
 
