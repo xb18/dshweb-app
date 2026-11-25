@@ -43,10 +43,27 @@ JS 侧统一使用 `window.nativeapp`，iOS 可按同一契约实现：
 2. 提交后打 `android-v<版本号>` tag 推送。
 3. `android.yml` 构建 Debug APK，创建 Release，并通过 WebDAV 发布 APK 与 `dshweb-update.txt` 更新索引。
 
+## 统一分发目录
+
+所有 app 共用一个 AList/WebDAV 挂载与一个蓝奏云分享，不再每个 app 建一套。
+CI 把文件上传到统一根下的 `dshweb-app/` 子目录：
+
+```
+<WEBDAV_DIR>/                 # 统一分发根（如 bookapp_share）
+├── dshweb-app/               # 本 app
+│   ├── dshweb-app-1.0.0.apk
+│   └── dshweb-update.txt
+└── <other-app>/              # 以后的 app 各自建子目录
+    └── ...
+```
+
+`PUBLIC_BASE` 填统一根的公网分享地址（如 `https://pan.202921.xyz/sd/j3JCxWPe`），
+CI 自动拼上 `/dshweb-app/` 子目录；APK 默认更新源同理。
+
 CI 需要的 Secrets / Variables：
 
 - Secrets：`WEBDAV_URL`、`WEBDAV_USERNAME`、`WEBDAV_PASSWORD`（可选 `ALIST_BASE_URL`）
-- Variables：`WEBDAV_DIR`、`PUBLIC_BASE`（可选 `ALIST_REFRESH=1`、`ALIST_SHARE_DIR`）
+- Variables：`WEBDAV_DIR` 填统一根（如 `bookapp_share`）、`PUBLIC_BASE` 填统一根公网地址（可选 `ALIST_REFRESH=1`、`ALIST_SHARE_DIR`）
 
 更新索引为通用 JSON（与参考壳一致）：
 

@@ -136,17 +136,20 @@ jobs:
             exit 1
           fi
           base="${WEBDAV_URL%/}"
-          dir="${WEBDAV_DIR#/}"
+          # 统一分发根下按 app 建子目录，多个 app 共用同一个挂载/分享。
+          # WEBDAV_DIR 填统一根（如 bookapp_share），APP_DIR 为本 app 子目录名。
+          dir="${WEBDAV_DIR#/}/dshweb-app"
+          public="${PUBLIC_BASE%/}/dshweb-app"
           auth=(-u "$WEBDAV_USERNAME:$WEBDAV_PASSWORD")
 
           apk_file="$(basename "$APK_NAME")"
           size=$(wc -c < "$APK_NAME" | tr -d ' ')
-          echo "上传 APK: $apk_file ($size 字节)"
+          echo "上传 APK: $dir/$apk_file ($size 字节)"
           curl -fsS "${auth[@]}" -T "$APK_NAME" "$base/$dir/$apk_file"
           echo "APK 上传完成"
 
           index="dshweb-index.txt"
-          python3 - "$apk_file" "$VERSION" "$PUBLIC_BASE" "$size" > "$index" <<'PY'
+          python3 - "$apk_file" "$VERSION" "$public" "$size" > "$index" <<'PY'
           import json, sys
           apk, version, public_base, size = sys.argv[1:5]
           print(json.dumps({
@@ -190,7 +193,7 @@ jobs:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
           sleep 5
-          body="$(curl -fsSL "$PUBLIC_BASE/dshweb-update.txt")" || {
+          body="$(curl -fsSL "$PUBLIC_BASE/dshweb-app/dshweb-update.txt")" || {
             echo "更新索引暂不可访问（可能是云盘缓存延迟），请人工核对" >&2; exit 0; }
           echo "$body"
           printf '%s' "$body" | python3 -c '
