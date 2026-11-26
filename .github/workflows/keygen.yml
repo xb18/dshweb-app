@@ -1,0 +1,27 @@
+name: 一次性生成签名 keystore
+on:
+  workflow_dispatch:
+
+jobs:
+  keygen:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 生成 keystore 并写入仓库 Secrets
+        env:
+          GH_TOKEN: ${{ secrets.BOOTSTRAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          ALIAS=app
+          STOREPASS=$(openssl rand -hex 16)
+          KEYPASS=$(openssl rand -hex 16)
+          keytool -genkeypair -v -keystore /tmp/app.jks \
+            -alias "$ALIAS" -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass "$STOREPASS" -keypass "$KEYPASS" \
+            -dname "CN=xb18, OU=app, O=xb18, L=CN, ST=CN, C=CN" >/dev/null 2>&1
+          gh secret set ANDROID_KEYSTORE_B64 --repo "$GITHUB_REPOSITORY" --body "$(base64 -w0 /tmp/app.jks)"
+          gh secret set ANDROID_KEYSTORE_PASSWORD --repo "$GITHUB_REPOSITORY" --body "$STOREPASS"
+          gh secret set ANDROID_KEY_PASSWORD --repo "$GITHUB_REPOSITORY" --body "$KEYPASS"
+          gh secret set ANDROID_KEY_ALIAS --repo "$GITHUB_REPOSITORY" --body "$ALIAS"
+          rm -f /tmp/app.jks
+          gh secret delete BOOTSTRAP_TOKEN --repo "$GITHUB_REPOSITORY" || true
+          echo "keystore 已写入 Secrets，BOOTSTRAP_TOKEN 已删除"
