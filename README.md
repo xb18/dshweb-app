@@ -31,7 +31,7 @@ JS 侧统一使用 `window.nativeapp`，iOS 可按同一契约实现：
 
 - `shell.getInsets()` / `shell.getInfo()` / `shell.onInsetsChange(cb)`
 - `shell.setStatusBarStyle({ light, color })` / `shell.setFullscreen(on)` / `shell.openExternal(url)`
-- `shell.setContentInsetTop(px)`
+- `shell.setContentInsetTop(px)` / `clipboard.copy(text)`
 - `update.check(source)` / `update.getAppVersion()` / `update.download(url)` / `update.install()`
   / `update.canInstall()` / `update.onEvent(cb)` 等
 

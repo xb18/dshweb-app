@@ -2,13 +2,18 @@ package com.xb18.dshweb
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
+import android.view.ActionMode
 import android.view.Gravity
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
@@ -104,6 +109,18 @@ class MainActivity : Activity(), Updater.Callback {
             webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
         }
         acquireWakeLock()
+
+        // 系统文本选择菜单浮在网页之上，会挡住 DSH 自己的引用气泡。
+        // 只清空菜单项，不返回 null，避免 WebView 同时丢掉文本选区。
+        webView.setCustomSelectionActionModeCallback(object : ActionMode.Callback {
+            override fun onCreateActionMode(mode: ActionMode?, menu: Menu?): Boolean = true
+            override fun onPrepareActionMode(mode: ActionMode?, menu: Menu?): Boolean {
+                menu?.clear()
+                return true
+            }
+            override fun onActionItemClicked(mode: ActionMode?, item: MenuItem?): Boolean = false
+            override fun onDestroyActionMode(mode: ActionMode?) {}
+        })
 
         webView.addJavascriptInterface(ShellApi(), "DshWebNative")
 
@@ -238,6 +255,8 @@ class MainActivity : Activity(), Updater.Callback {
                 }
               };
 
+              m.clipboard = { copy: function(text){ n.copyText(String(text || '')); } };
+
               m.update = {
                 getAppVersion: function(){ return n.getAppVersion(); },
                 check: function(source){ n.checkUpdate(String(source || '')); },
@@ -258,6 +277,74 @@ class MainActivity : Activity(), Updater.Callback {
             })();
         """.trimIndent()
         webView.evaluateJavascript(bridge, null)
+        injectCopyAction()
+    }
+
+    /**
+     * 系统选择菜单已被清空，这里把“复制”补回网页自己的选择浮层：
+     * 浮层出现时插入同款按钮，点击后走原生剪贴板并清掉选区，与引用按钮互不干扰。
+     */
+    private fun injectCopyAction() {
+        val script = """
+            (function(){
+              if (window.__dshCopyAction) return;
+              window.__dshCopyAction = true;
+              var ID = 'dsh-shell-copy';
+              var doc = document;
+
+              function surface(){ return doc.querySelector('[data-text-interaction-surface]'); }
+              function currentText(){
+                var s = doc.getSelection();
+                return s && s.rangeCount > 0 ? String(s).trim() : '';
+              }
+              function drop(){
+                var el = doc.getElementById(ID);
+                if (el) el.remove();
+              }
+              function sync(){
+                var host = surface();
+                var text = currentText();
+                if (!host || host.getAttribute('aria-hidden') === 'true' || text === '') { drop(); return; }
+                var btn = doc.getElementById(ID);
+                var ref = host.firstElementChild;
+                if (!btn) {
+                  btn = doc.createElement('button');
+                  btn.id = ID;
+                  btn.type = 'button';
+                  btn.textContent = '复制';
+                  btn.setAttribute('aria-label', '复制选中文本');
+                  btn.style.marginRight = '6px';
+                  // 与引用按钮同源样式，避免自造视觉。
+                  if (ref) {
+                    btn.className = ref.className;
+                    btn.setAttribute('style', ref.getAttribute('style') || '');
+                    btn.style.marginRight = '6px';
+                  }
+                  // 阻止浮层的 pointerdown 收起逻辑误判为外部点击。
+                  btn.addEventListener('pointerdown', function(e){ e.preventDefault(); e.stopPropagation(); });
+                  btn.addEventListener('click', function(e){
+                    e.preventDefault(); e.stopPropagation();
+                    var t = currentText();
+                    if (t) { try { window.nativeapp.clipboard.copy(t); } catch (err) {} }
+                    var s = doc.getSelection();
+                    if (s) s.removeAllRanges();
+                    drop();
+                  });
+                  host.insertBefore(btn, host.firstChild);
+                } else if (ref && ref !== btn) {
+                  btn.className = ref.className;
+                }
+              }
+
+              doc.addEventListener('selectionchange', function(){ setTimeout(sync, 0); });
+              new MutationObserver(function(mutations){
+                for (var i = 0; i < mutations.length; i++) {
+                  if (mutations[i].target !== doc.getElementById(ID)) { sync(); return; }
+                }
+              }).observe(doc.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-hidden', 'style', 'class'] });
+            })();
+        """.trimIndent()
+        webView.evaluateJavascript(script, null)
     }
 
     private fun notifyInsets() {
@@ -318,6 +405,14 @@ class MainActivity : Activity(), Updater.Callback {
             if (!url.startsWith("http://") && !url.startsWith("https://")) return
             try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
             catch (_: Exception) { /* 无可用应用则忽略 */ }
+        }
+
+        @JavascriptInterface
+        fun copyText(text: String) {
+            runOnUiThread {
+                val clipboard = getSystemService(CLIPBOARD_SERVICE) as? ClipboardManager ?: return@runOnUiThread
+                clipboard.setPrimaryClip(ClipData.newPlainText("dshweb-copy", text))
+            }
         }
 
         @JavascriptInterface
