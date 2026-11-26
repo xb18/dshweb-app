@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
@@ -35,6 +36,35 @@ import android.widget.Toast
 import org.json.JSONObject
 
 private const val REQUEST_FILE_CHOOSER = 1001
+
+/**
+ * 清空系统文本选择菜单项，但保留 ActionMode 与文本选区，让网页自己的引用浮层可用。
+ */
+private class SelectionWebView(context: Context) : WebView(context) {
+    private fun wrap(callback: ActionMode.Callback?): ActionMode.Callback = object : ActionMode.Callback {
+        override fun onCreateActionMode(mode: ActionMode?, menu: Menu?): Boolean {
+            val created = callback?.onCreateActionMode(mode, menu) ?: false
+            menu?.clear()
+            return created
+        }
+        override fun onPrepareActionMode(mode: ActionMode?, menu: Menu?): Boolean {
+            val prepared = callback?.onPrepareActionMode(mode, menu) ?: false
+            menu?.clear()
+            return prepared
+        }
+        override fun onActionItemClicked(mode: ActionMode?, item: MenuItem?): Boolean =
+            callback?.onActionItemClicked(mode, item) ?: false
+        override fun onDestroyActionMode(mode: ActionMode?) {
+            callback?.onDestroyActionMode(mode)
+        }
+    }
+
+    override fun startActionMode(callback: ActionMode.Callback?): ActionMode? =
+        super.startActionMode(wrap(callback))
+
+    override fun startActionMode(callback: ActionMode.Callback?, type: Int): ActionMode? =
+        super.startActionMode(wrap(callback), type)
+}
 
 /**
  * DSH Web 的全屏 WebView 壳：原生只负责加载网页、暴露稳定 JS API 与处理安全区。
@@ -75,7 +105,7 @@ class MainActivity : Activity(), Updater.Callback {
 
         // 顶部安全区交给网页（--shell-top）处理，原生不再预留 margin，避免双重留白。
         // 页面若需要原生侧额外偏移，可调用 setContentInsetTop(px)。
-        webView = WebView(this).apply {
+        webView = SelectionWebView(this).apply {
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
             )
@@ -109,18 +139,6 @@ class MainActivity : Activity(), Updater.Callback {
             webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
         }
         acquireWakeLock()
-
-        // 系统文本选择菜单浮在网页之上，会挡住 DSH 自己的引用气泡。
-        // 只清空菜单项，不返回 null，避免 WebView 同时丢掉文本选区。
-        webView.setCustomSelectionActionModeCallback(object : ActionMode.Callback {
-            override fun onCreateActionMode(mode: ActionMode?, menu: Menu?): Boolean = true
-            override fun onPrepareActionMode(mode: ActionMode?, menu: Menu?): Boolean {
-                menu?.clear()
-                return true
-            }
-            override fun onActionItemClicked(mode: ActionMode?, item: MenuItem?): Boolean = false
-            override fun onDestroyActionMode(mode: ActionMode?) {}
-        })
 
         webView.addJavascriptInterface(ShellApi(), "DshWebNative")
 
