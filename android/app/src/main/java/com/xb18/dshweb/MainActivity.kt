@@ -1,5 +1,7 @@
 package com.xb18.dshweb
 
+private const val REQUEST_FILE_CHOOSER = 1001
+
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
@@ -13,6 +15,8 @@ import android.view.ViewGroup
 import android.view.WindowInsets
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient.FileChooserParams
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -38,6 +42,7 @@ class MainActivity : Activity(), Updater.Callback {
     private lateinit var errorView: View
     private lateinit var errorText: TextView
     private lateinit var updater: Updater
+    private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var lastBackPress = 0L
     private var loadFailed = false
 
@@ -61,12 +66,12 @@ class MainActivity : Activity(), Updater.Callback {
         errorView = layoutInflater.inflate(R.layout.view_error, null).apply { visibility = View.GONE }
         errorText = errorView.findViewById(R.id.error_text)
 
-        // 原生兜底：WebView 顶部预留状态栏高度，即使页面未读取 insets 也不会被遮挡。
-        // 页面若自行处理安全区（读取 window.nativeapp.shell.getInsets），可调用 setContentInsetTop(0) 关掉。
+        // 顶部安全区交给网页（--shell-top）处理，原生不再预留 margin，避免双重留白。
+        // 页面若需要原生侧额外偏移，可调用 setContentInsetTop(px)。
         webView = WebView(this).apply {
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
-            ).apply { setMargins(0, statusBarHeightPx(), 0, 0) }
+            )
         }
         configureCookies()
         updater = Updater(this, this)
@@ -123,6 +128,25 @@ class MainActivity : Activity(), Updater.Callback {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 progress.progress = newProgress
                 progress.visibility = if (newProgress in 1..99) View.VISIBLE else View.GONE
+            }
+
+            override fun onShowFileChooser(
+                webView: WebView?, callback: ValueCallback<Array<Uri>>?, params: FileChooserParams?,
+            ): Boolean {
+                filePathCallback?.onReceiveValue(null)
+                filePathCallback = callback
+                val intent = params?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                    type = "*/*"
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                }
+                try {
+                    @Suppress("DEPRECATION")
+                    startActivityForResult(intent, REQUEST_FILE_CHOOSER)
+                } catch (_: Exception) {
+                    filePathCallback?.onReceiveValue(null)
+                    filePathCallback = null
+                }
+                return true
             }
         }
 
@@ -322,6 +346,20 @@ class MainActivity : Activity(), Updater.Callback {
                 "window.__nativeappUpdateEvent && window.__nativeappUpdateEvent(${JSONObject.quote(payload)});", null,
             )
         }
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQUEST_FILE_CHOOSER) return
+        val callback = filePathCallback ?: return
+        filePathCallback = null
+        val uris: Array<Uri>? = if (resultCode == Activity.RESULT_OK) {
+            data?.clipData?.let { clip ->
+                (0 until clip.itemCount).map { clip.getItemAt(it).uri }.toTypedArray()
+            } ?: data?.data?.let { arrayOf(it) }
+        } else null
+        callback.onReceiveValue(uris)
     }
 
     override fun onBackPressed() {
