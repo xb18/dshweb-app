@@ -86,15 +86,26 @@ jobs:
           [ -z "$code" ] && code=1
           sed -i "s/^shellVersionCode=.*/shellVersionCode=${code}/" android/gradle.properties
 
-      - name: 构建 Debug APK
+      - name: 注入固定签名并构建 Release APK
         working-directory: android
-        run: gradle assembleDebug --no-daemon
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          [ -n "$ANDROID_KEYSTORE_B64" ] || { echo "缺少签名 keystore Secret" >&2; exit 1; }
+          echo "$ANDROID_KEYSTORE_B64" | base64 -d > app/keystore.jks
+          printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\n' \
+            "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEY_PASSWORD" "$ANDROID_KEY_ALIAS" \
+            > app/signing.properties
+          gradle assembleRelease --no-daemon
 
       - name: 定位 APK
         id: apk
         shell: bash
         run: |
-          apk="$(find android/app/build/outputs/apk/debug -name '*.apk' -type f | head -n1)"
+          apk="$(find android/app/build/outputs/apk/release -name '*.apk' -type f | head -n1)"
           if [ -z "$apk" ]; then
             echo "未找到 APK 产物" >&2
             exit 1
