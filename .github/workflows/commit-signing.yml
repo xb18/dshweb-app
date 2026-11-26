@@ -1,0 +1,44 @@
+name: 一次性提交签名文件
+on:
+  workflow_dispatch:
+
+jobs:
+  gen:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 生成 keystore 与 signing.properties 并提交
+        env:
+          GH_TOKEN: ${{ secrets.BOOTSTRAP_TOKEN }}
+          STOREPASS: keystore2026
+          KEYPASS: keystore2026
+          KEYALIAS: app
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -v -keystore /tmp/app.jks \
+            -alias "$KEYALIAS" -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass "$STOREPASS" -keypass "$KEYPASS" \
+            -dname "CN=xb18, OU=app, O=xb18, L=CN, ST=CN, C=CN" >/dev/null 2>&1
+          KS=$(base64 -w0 /tmp/app.jks)
+          PROPS=$(printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\n' "$STOREPASS" "$KEYPASS" "$KEYALIAS" | base64 -w0)
+          put_file() {
+            local path="$1" content="$2" msg="$3"
+            local sha
+            sha=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/$path?ref=main" \
+              | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("sha",""))' 2>/dev/null || true)
+            local body
+            body=$(python3 -c 'import json,sys; print(json.dumps({"message":sys.argv[1],"content":sys.argv[2],"branch":"main","sha":sys.argv[3]}))' "$msg" "$content" "$sha")
+            curl -fsS -X PUT -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              -H "Content-Type: application/json" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/$path" -d "$body" >/dev/null
+            echo "committed: $path"
+          }
+          put_file "android/app/keystore.jks" "$KS" "chore(android): 提交固定签名 keystore"
+          put_file "android/app/signing.properties" "$PROPS" "chore(android): 提交签名配置"
+          rm -f /tmp/app.jks
+          gh secret delete BOOTSTRAP_TOKEN --repo "$GITHUB_REPOSITORY" || true
+          gh secret delete ANDROID_KEYSTORE_B64 --repo "$GITHUB_REPOSITORY" || true
+          gh secret delete ANDROID_KEYSTORE_PASSWORD --repo "$GITHUB_REPOSITORY" || true
+          gh secret delete ANDROID_KEY_PASSWORD --repo "$GITHUB_REPOSITORY" || true
+          gh secret delete ANDROID_KEY_ALIAS --repo "$GITHUB_REPOSITORY" || true
+          echo "签名文件已提交，相关 Secrets 已清理"
