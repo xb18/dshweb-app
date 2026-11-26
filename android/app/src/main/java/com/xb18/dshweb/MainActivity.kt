@@ -1,7 +1,5 @@
 package com.xb18.dshweb
 
-private const val REQUEST_FILE_CHOOSER = 1001
-
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
@@ -29,6 +27,8 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import org.json.JSONObject
+
+private const val REQUEST_FILE_CHOOSER = 1001
 
 /**
  * DSH Web 的全屏 WebView 壳：原生只负责加载网页、暴露稳定 JS API 与处理安全区。
