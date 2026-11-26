@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -45,6 +46,7 @@ class MainActivity : Activity(), Updater.Callback {
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var lastBackPress = 0L
     private var loadFailed = false
+    private var wakeLock: PowerManager.WakeLock? = null
 
     private var insets = mapOf(
         "top" to 0, "bottom" to 0, "left" to 0, "right" to 0,
@@ -95,6 +97,13 @@ class MainActivity : Activity(), Updater.Callback {
             mediaPlaybackRequiresUserGesture = false
             userAgentString = "$userAgentString DshWebShell/${BuildConfig.VERSION_NAME}"
         }
+
+        // 后台仍保持渲染进程高优先级，避免系统冻结 JS 定时器导致会话中断。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // waivedWhenNotVisible=false：切后台也不放弃高优先级，保住 JS 定时器。
+            webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
+        }
+        acquireWakeLock()
 
         webView.addJavascriptInterface(ShellApi(), "DshWebNative")
 
@@ -378,12 +387,33 @@ class MainActivity : Activity(), Updater.Callback {
         webView.saveState(outState)
     }
 
+    @Suppress("Deprecation")
+    private fun acquireWakeLock() {
+        if (wakeLock != null) return
+        val pm = getSystemService(POWER_SERVICE) as? PowerManager ?: return
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "dshweb:keepalive").apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+    }
+
+    private fun releaseWakeLock() {
+        wakeLock?.let { if (it.isHeld) it.release() }
+        wakeLock = null
+    }
+
+    override fun onResume() {
+        super.onResume()
+        acquireWakeLock()
+    }
+
     override fun onPause() {
         super.onPause()
         CookieManager.getInstance().flush()
     }
 
     override fun onDestroy() {
+        releaseWakeLock()
         webView.destroy()
         super.onDestroy()
     }
