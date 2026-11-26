@@ -41,31 +41,26 @@ JS 侧统一使用 `window.nativeapp`，iOS 可按同一契约实现：
 
 1. 改 `android/gradle.properties` 的 `shellVersionName`（`webUrl` 一般不变）。
 2. 提交后打 `android-v<版本号>` tag 推送。
-3. `android.yml` 构建 Debug APK，创建 Release，并通过 WebDAV 发布 APK 与 `dshweb-update.txt` 更新索引。
+3. `android.yml` 构建 Debug APK，创建 Release，并通过 R2 S3 API 发布 APK 与 `dshweb-app-update.txt` 更新索引。
 
 ## 统一分发目录
 
-所有 app 共用一个 AList/WebDAV 挂载与一个蓝奏云分享，不再每个 app 建一套。
-CI 把文件上传到统一根下的 `dshweb-app/` 子目录：
+所有 app 共用一个 Cloudflare R2 桶 `cloud`，公共根为 `appdist/`，每个 app 在根下用自己的子文件夹：
 
 ```
-<WEBDAV_DIR>/                       # 统一可写分发根（账号挂载 /lanzou/appdist，公网分享 59uaf2bR）
-├── dshweb-app-1.0.0.apk            # 本 app 的 APK（文件名前缀区分 app）
-├── dshweb-app-update.txt           # 本 app 的更新索引
-└── <other-app>-1.0.0.apk           # 其他 app 各自用前缀，不建子目录
+appdist/                            # 公共根（R2_ROOT）
+├── dshweb/                         # 本 app（R2_PREFIX=dshweb）
+│   ├── dshweb-app-1.0.0.apk
+│   └── dshweb-app-update.txt
+└── <other-app>/                    # 其他 app 各自一个子文件夹
 ```
 
-分发目录必须**扁平**：蓝奏云分享挂载对子文件夹的列表与直链有兼容问题，
-因此各 app 用文件名前缀区分，不建子目录。
+端侧默认更新源：`https://dl.202921.xyz/appdist/dshweb/dshweb-app-update.txt`（自定义域匿名读取）。换存储时路径稳定，用户无感。
 
-`WEBDAV_DIR` 填 `lanzou/appdist`（账号挂载可写；分享链接挂载只读，不能用于上传）。
-`PUBLIC_BASE` 填统一根的公网分享地址（如 `https://pan.202921.xyz/sd/59uaf2bR`），
-APK 默认更新源同理。
+CI 需要的 Secrets / Variables（已配置在仓库 Actions）：
 
-CI 需要的 Secrets / Variables：
-
-- Secrets：`WEBDAV_URL`、`WEBDAV_USERNAME`、`WEBDAV_PASSWORD`（可选 `ALIST_BASE_URL`）
-- Variables：`WEBDAV_DIR` 填统一根（`lanzou/appdist`）、`PUBLIC_BASE` 填统一根公网地址（`https://pan.202921.xyz/sd/59uaf2bR`）（可选 `ALIST_REFRESH=1`、`ALIST_SHARE_DIR`）
+- Secrets：`R2_ACCOUNT_ID`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`
+- Variables：`R2_PUBLIC_BASE`（`https://dl.202921.xyz`）、`R2_BUCKET`（默认 `cloud`）、`R2_ROOT`（默认 `appdist`）、`R2_PREFIX`（本 app 为 `dshweb`）
 
 更新索引为通用 JSON（与参考壳一致）：
 
