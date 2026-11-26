@@ -1,12 +1,14 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
 
 android {
-    // 固定签名：keystore 由 CI 注入，保证跨 runner 的版本可覆盖安装。
+    // 固定签名：keystore 随仓库提交，保证跨 runner 的版本可覆盖安装；密码由 CI 注入。
     val keystoreFile = file("keystore.jks")
-    val signingProps = java.util.Properties()
+    val signingProps = Properties()
     val propFile = file("signing.properties")
     if (propFile.exists()) propFile.inputStream().use { signingProps.load(it) }
     val hasKeystore = keystoreFile.exists() && signingProps.getProperty("storePassword") != null
