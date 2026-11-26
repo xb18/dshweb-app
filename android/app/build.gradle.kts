@@ -6,10 +6,9 @@ plugins {
 android {
     // 固定签名：keystore 由 CI 注入，保证跨 runner 的版本可覆盖安装。
     val keystoreFile = file("keystore.jks")
-    val signingProps = java.util.Properties().apply {
-        val f = file("signing.properties")
-        if (f.exists()) f.inputStream().use { load(it) }
-    }
+    val signingProps = java.util.Properties()
+    val propFile = file("signing.properties")
+    if (propFile.exists()) propFile.inputStream().use { signingProps.load(it) }
     val hasKeystore = keystoreFile.exists() && signingProps.getProperty("storePassword") != null
 
     signingConfigs {

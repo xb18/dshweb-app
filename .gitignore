@@ -7,6 +7,4 @@
 *.apk
 .DS_Store
 
-# 固定签名密钥：CI 从 Secrets 注入，不落版本库
-android/app/keystore.jks
-android/app/signing.properties
+# 固定签名密钥随仓库提交，以保证跨版本签名一致（signing.properties 也提交）
